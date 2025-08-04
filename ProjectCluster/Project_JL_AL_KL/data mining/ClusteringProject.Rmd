@@ -1,0 +1,386 @@
+---
+title: "Clustering project"
+author: "Jakub Laszczyk, Kevin Lember, Artur Leppik"
+date: "26 de enero de 2024"
+output:
+  html_document:
+    toc: yes
+    toc_depth: 3
+    number_sections: yes
+    theme: united
+    highlight: tango
+  pdf_document:
+    toc: yes
+    toc_depth: '3'
+editor_options: 
+  markdown: 
+    wrap: sentence
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Data and goal
+
+The file Vinos (Wines) contains the results of a chemical analysis conducted on 178 Vinos from a region in Italy originating from three different cultivation areas.
+
+The variables in the file include the cultivation area (cultivo) from which the wine comes (1, 2, or 3) and the quantities of: alcohol (in %), malic acid, ash (cenizas), ash alkalinity, magnesium, total phenols, flavonoid phenols, non-flavonoid phenols, and proanthocyanidins (in g/l), color intensity, hue (tonalidad), OD280/OD315 of the diluted wine (without units of measurement), and proline (in ppm).
+
+The goal is to group Vinos with similar compositions and determine if Vinos from the same area are grouped together.
+
+Source: <https://archive.ics.uci.edu/ml/datasets/Wine>.
+
+# Data preparation
+
+```{r, warning=FALSE,message=FALSE}
+load("Vinos.RData")
+library(fpc)
+library(ggplot2)
+library(GGally)
+library(factoextra)
+require(RcmdrMisc)
+data <- Vinos[,-1]  
+names(data)
+
+```
+
+# Correlation Matrix
+
+```{r}
+
+cor_matrix <- cor(Vinos)
+
+cor_df <- reshape2::melt(cor_matrix)
+
+# Visualisation
+ggplot(cor_df, aes(Var1, Var2, fill = value)) +
+  geom_tile() +
+  scale_fill_gradient2(low = "blue", high = "red", mid = "white", midpoint = 0) +
+  labs(title = "Correlation heatmap") +
+  theme(panel.border = element_rect(color = 'black',fill = NA,size = 1),
+      panel.background = element_rect(fill='gray95'),
+      plot.background = element_rect(color = 'black', size = 1),
+      axis.text.x = element_text(angle = 45, hjust = 1),
+      axis.title.x = element_blank(),  
+      axis.title.y = element_blank())
+```
+
+The darker red squares indicate stronger positive correlations between the variables.
+The darker blue squares indicate stronger negative correlations.
+The lighter shades, both red and blue, represent weaker correlations.
+Squares that are white or very light in color represent little to no correlation.
+
+For conclusion:
+
+Positive correlation among phenolic compounds: The strong positive correlation between "Fenoles," "Flavonoides," and "Proantocianidinas" suggests that vines with higher total phenolic content also tend to have higher levels of specific phenolic compounds like flavonoids and proanthocyanidins.
+
+Color Intensity and Phenolic Content: The positive correlation between color intensity and these phenolic compounds likely indicates that wines with higher phenol levels tend to have a deeper color.
+
+Non-flavonoid Phenols: The correlation between "Fenoles.no.flavonoides" and other phenolic content suggests that as the total phenol content increases, non-flavonoid phenols increase as well.
+
+No single variable shows a strong direct correlation with the cultivation area, which suggests that the cultivation area's influence on wine composition is not dominated by any one chemical property
+
+**Preprocessing**
+
+Calculate measures of central tendency and dispersion, and decide whether it is advisable to scale the data.
+Check for missing data.
+
+Use box plots to examine if there are outliers.
+
+Based on the above measures and plots, decide which variables best distinguish the cultivation areas.
+
+```{r}
+#checking for missing values 
+sum(is.na(Vinos))
+```
+
+there are no missing values in our data set
+
+```{r}
+#basics statistics
+summary(Vinos)
+```
+
+In all of the variables median is similar to mean which means that they have a symmetric distribution.
+
+From summary we can conclude that it's necessary to scale the data, because variables have values in different ranges.
+
+```{r, warning=FALSE}
+#scatterplot
+scatterplotMatrix(Vinos, id=list(method="mahal", n=2), diagonal=list(method="none"))
+```
+
+```{r, warning=FALSE,message=FALSE}
+Vinos$Cultivo <- as.factor(Vinos$Cultivo)
+
+# Function to create boxplots for each column with respect to 'Cultivo'
+create_boxplots <- function(data, response) {
+  plots <- lapply(names(data)[-1], function(col) {
+    ggplot(data, aes_string(x = "Cultivo", y = col)) +
+      geom_boxplot() +
+      labs(x = "Cultivo", y = col, title = paste("Boxplot of", col, "with respect to Cultivo")) +
+      theme_minimal()
+  })
+  return(plots)
+}
+
+boxplots_list <- create_boxplots(Vinos, response = "Cultivo")
+boxplots_list
+```
+
+We can see in boxplots that there are some outliers but there is not enough of them to impact the results so there is no need to remove them.
+We can also notice that some of the variables (for example: Prolina,Ratio.absOD280.absOD315.vino.diluido,Flavonoides,Alcohol) are more related to the region they are coming from.
+
+# Dimensionality reduction
+
+Calculate the principal components, interpret the first two, and indicate the percentage of variance they explain.
+
+```{r,message=FALSE}
+CA.pc<-princomp(~. ,data= data, cor=TRUE, scores=TRUE)
+  cat("\nComponent loadings:\n")
+  print(unclass(loadings(CA.pc)))
+```
+
+Component 1:
+
+Moderate positive loadings for variables like "Alcohol," "Fenoles" , "Intensidad.color" , and "Prolina" .
+This suggests that Component 1 increases with increasing values of these variables.
+It also has negative loadings for "Ácido.Málico" , though smaller in magnitude.
+
+Component 2:
+
+A strong positive loading on "Alcohol" and "Prolina," indicating that this component increases with these variables.
+A strong negative loading on "Intensidad.color," which suggests a contrast or trade-off relationship.
+As the color intensity decreases, the component score increases, or vice versa.
+
+Wines with higher scores on Comp.2 might be higher in alcohol and proline but lighter in color, potentially indicating wines that are strong and rich but not necessarily deep in color.
+
+```{r}
+cat("\nComponent variances:\n")
+  print(CA.pc$sd^2)
+  cat("\n")
+  print(summary(CA.pc))
+```
+
+**Comp.1**: It has a variance of approximately 4.71, which is the highest among all the components.
+
+**Comp.2**: The second component has a variance of approximately 2.50, which is lower than Component 1 but still significant.
+
+In summary, Comp.1 is the most influential in terms of explaining the variability in your dataset, indicating that it captures the essence of the data to a great extent.
+Comp.2 is also important but to a lesser degree than Comp.1.
+Together, these two components explain over half of the variability in the data, which can be quite significant depending on the complexity and size of the dataset.
+
+```{r}
+biplot(CA.pc, scale = 0, cex = 0.6, col = c("blue4", "brown3"))
+```
+
+**"Flavonoides" and "Fenoles":**
+
+Since both "Flavonoides" and "Fenoles" vectors are pointing in a similar direction, this suggests that wines with a higher content of phenols also have higher amounts of flavonoids.
+
+**"Ácido.Málico" and "Alcalinidad.Cenizas":**
+
+If the "Ácido.Málico" vector points in a different direction from the "Alcalinidad.Cenizas" vector, it may indicate that wines with higher malic acid levels tend to have lower ash alkalinity, or vice versa.
+
+**"Proantocianidinas" and "Color Intensity":**
+
+If the vector for "Proantocianidinas" aligns with "Intensidad.color" , it could suggest that wines with higher proanthocyanidin levels are likely to have a deeper color.
+
+**"Fenoles.no.flavonoides" and "Flavonoides":**
+
+In the case that "Fenoles.no.flavonoides" vector is positioned closely to the "Flavonoides" vector, this would imply that wines high in non-flavonoid phenols also have high flavonoid content.
+
+**"Ratio.abs" and "Proantocianidinas":**
+
+If the vector for the absorbance ratio points in the opposite direction to "Proantocianidinas," this might imply that wines with higher ratios of absorbance tend to have lower levels of proanthocyanidins.
+
+```{r}
+CA.sc<-scale(data)
+dist.CAsc<-dist(CA.sc, method = "canberra")
+
+
+hc.CAsc<-hclust(dist.CAsc, method = "ward.D2")
+print(hc.CAsc) #Devuelve el método con el que se ha obtenido el árbol
+```
+
+```{r, warning=FALSE}
+dataCA.sc<-scale(data)
+fviz_dist(dist(dataCA.sc), show_labels = TRUE)+
+labs(title = "Vinos (scaled data)")
+```
+
+We can see that there are 3 areas that we can distinguish that are indicating three possible clusters.
+
+2.  **DENDOGRAM**
+
+```{r,warning=FALSE}
+plot(hc.CAsc)
+fviz_dend(hc.CAsc, k=3, data = CA.sc,
+  #k_colors= c("green", "#00AFBB", "#E7B800", "#FC4E07"),
+  show_labels = TRUE, #defecto
+  rect=TRUE, #defecto FALSE. Hay también opciones para su formato
+  main = "Dendogram (scaled data)",
+  sub = "Euclidean distance and complete linkage"
+)
+```
+
+The height at which two items join represents the distance or dissimilarity between them.
+A short height indicates high similarity.
+The structure of the dendrogram allows us to infer the number of clusters by cutting the "tree" at different heights.
+
+3.  **elbow method**
+
+```{r}
+set.seed(31)
+# function to compute total within-cluster sum of squares
+fviz_nbclust(data, kmeans, method = "wss", k.max = 10) + theme_minimal() + ggtitle("the Elbow Method")
+```
+
+The elbow seems to be around 3 clusters, which aligns well with the fact that there are three cultivation areas.
+
+# Clustering method
+
+Apply the assigned method and briefly explain (2 or 3 lines per cluster) what types of Vinos contains each cluster.
+Indicate how the cultivation areas are distributed among the different clusters.
+
+```{r}
+g.hcCAsc<-cutree(hc.CAsc,k=3)
+
+fviz_cluster(list(data = CA.sc, cluster = g.hcCAsc), 
+             stand = TRUE, 
+             geom = c("point", "text"), 
+             show.clust.cent = TRUE, #defecto
+             ellipse.type = "convex", #defecto
+             ggtheme = theme_minimal(),
+             main="Vinos cluster plot with hierarchical cluster")
+
+```
+
+We tried every possible combination of methods for linkage and distance and the best on was "canberra" and "ward.D2".
+
+```{r}
+cluskm.CA <- eclust(data, FUNcluster = "hclust", k = 3, seed = 123, stand =TRUE,
+                      nstart = 30, graph = TRUE)
+
+
+fviz_silhouette(cluskm.CA, label = TRUE, print.summary = TRUE, 
+                ggtheme = theme_minimal())+
+  labs(subtitle = "Silhouette method for  scaled  data with K-means")
+```
+
+An average of 0.28 suggests that the clusters are fairly distinct but not strongly separated.
+
+```{r}
+data$cluster <- g.hcCAsc
+
+# Calculate counts of wines from each 'cultivo' in each cluster
+cultivo_cluster_counts <- table(Vinos$Cultivo, data$cluster)
+
+# Print or view the counts
+print(cultivo_cluster_counts)
+```
+
+In first cluster there are 59 wines from cultivo 1 and 4 wines from cultivo 2.
+
+In second cluster there are 62 wines from cultivo 2 .
+
+In third cluster there are 48 wines from cultivo 3 and 5 wines from cultivo 2.
+
+**Clustering validation**
+
+Clustering with K-means, three clusters, nstart=30.
+
+```{r}
+cluskm.CA <- eclust(data, FUNcluster = "kmeans", k = 3, seed = 123, stand =TRUE,
+                      nstart = 30, graph = TRUE)
+```
+
+```{r}
+cluster_assignments <- cluskm.CA$cluster
+
+# Assuming 'data' is your original data
+# Add cluster assignments to the original data
+data$cluster <- cluster_assignments
+
+# Count wines from each 'cultivo' in the same clusters
+cluster_cultivo_counts <- table(Vinos$Cultivo, data$cluster)
+
+# Print or view the cluster counts
+print(cluster_cultivo_counts)
+```
+
+In first cluster there are 59 wines from cultivo 1 and 6 wines from cultivo 2.
+
+In second cluster there are 61 wines from cultivo 2 .
+
+In third cluster there are 48 wines from cultivo 3 and 4 wines from cultivo 2.
+
+```{r}
+#cluskm.CA$silinfo
+cluskm.CA$isolation
+cluskm.CA$nbclust
+
+fviz_silhouette(cluskm.CA, label = TRUE, print.summary = TRUE, 
+                ggtheme = theme_minimal())+
+  labs(subtitle = "Silhouette method for  scaled  data with K-means")
+```
+
+Each data instance  is similar to its own cluster in comparison to other clusters. The minus values in 3 cluster indicate that in 3 cluster not all of the data instaces are similar.
+
+
+
+
+Clustering with PAM.
+
+```{r}
+cluspam.CA <- eclust(data, FUNcluster = "pam", k = 3, seed = 123, stand =TRUE,
+                      nstart = 10, graph = TRUE)
+```
+
+```{r}
+cluster_assignments <- cluspam.CA$cluster
+
+# Assuming 'data' is your original data
+# Add cluster assignments to the original data
+data$cluster <- cluster_assignments
+
+# Count wines from each 'cultivo' in the same clusters
+cluster_cultivo_counts <- table(Vinos$Cultivo, data$cluster)
+
+# Print or view the cluster counts
+print(cluster_cultivo_counts)
+```
+
+In first cluster there are 59 wines from cultivo 1 and 13 wines from cultivo 2.
+
+In second cluster there are 56 wines from cultivo 2 .
+
+In third cluster there are 48 wines from cultivo 3 and 2 wines from cultivo 2.
+
+```{r}
+#cluspam.CA$silinfo
+cluspam.CA$isolation 
+cluspam.CA$nbclust
+```
+
+```{r}
+fviz_silhouette(cluspam.CA, label = TRUE, print.summary = TRUE, 
+                ggtheme = theme_minimal())+
+  labs(subtitle = "Silhouette method for (non scaled) food consumption data with PAM")
+```
+
+
+Each data instance  is similar to its own cluster in comparison to other clusters. There seems to be a problem with first cluster.
+
+**dunna index**
+
+```{r}
+km_stats <- cluster.stats(dist(data,"canberra"), cluskm.CA$cluster)
+km_stats$dunn
+
+pam_stats <- cluster.stats(dist(data,"canberra"), cluspam.CA$cluster)
+pam_stats$dunn
+```
+
+According to Dunn index we have room for improvement in clustering. The best dunn index was with canberra distance.
